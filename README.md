@@ -212,8 +212,8 @@ VS Code Copilot Chat
 
 ```bash
 # 1. Clonar e instalar dependencias
-git clone <repo>
-cd Plugins_vscore
+git clone https://github.com/mdesantis1984/copilot-lmstudio
+cd copilot-lmstudio
 npm install
 
 # 2. Compilar y empaquetar
