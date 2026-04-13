@@ -1,0 +1,590 @@
+{
+
+  "name": "copilot-lmstudio",
+
+  "displayName": "Copilot + LM Studio — Local AI",
+
+  "description": "Integra LM Studio con GitHub Copilot Chat. Modelos locales sin coste, sin Internet, con privacidad total.",
+
+  "version": "1.1.45",
+
+  "publisher": "madesantis",
+
+  "license": "MIT",
+
+  "engines": {
+
+    "vscode": "^1.95.0"
+
+  },
+
+  "categories": [
+
+    "AI",
+
+    "Chat",
+
+    "Machine Learning"
+
+  ],
+
+  "keywords": [
+
+    "copilot",
+
+    "lm studio",
+
+    "local",
+
+    "llm",
+
+    "ai",
+
+    "offline",
+
+    "free",
+
+    "openai"
+
+  ],
+
+  "repository": {
+
+    "type": "git",
+
+    "url": "https://github.com/thiscloudservices/copilot-local-models"
+
+  },
+
+  "icon": "assets/icon.png",
+
+  "galleryBanner": {
+
+    "color": "#1e1e2e",
+
+    "theme": "dark"
+
+  },
+
+  "activationEvents": [
+
+    "onStartupFinished"
+
+  ],
+
+  "main": "./out/extension.js",
+
+  "contributes": {
+
+    "languageModelChatProviders": [
+
+      {
+
+        "vendor": "lmstudio-local",
+
+        "displayName": "LM Studio (Local)"
+
+      }
+
+    ],
+
+    "chatParticipants": [
+
+      {
+
+        "id": "copilot-local.localai",
+
+        "name": "localai",
+
+        "fullName": "LM Studio Local AI",
+
+        "description": "Chatea con modelos de LM Studio. Coste cero, privacidad total.",
+
+        "isSticky": false,
+
+        "commands": [
+
+          {
+
+            "name": "models",
+
+            "description": "Lista los modelos disponibles en LM Studio"
+
+          },
+
+          {
+
+            "name": "switch",
+
+            "description": "Cambia el modelo activo de LM Studio"
+
+          },
+
+          {
+
+            "name": "status",
+
+            "description": "Muestra el estado del servidor LM Studio"
+
+          },
+
+          {
+
+            "name": "sdd",
+
+            "description": "Inicia el flujo Spec-Driven Development (9 pasos guiados)"
+
+          },
+
+          {
+
+            "name": "next",
+
+            "description": "Avanza al siguiente paso del flujo SDD activo"
+
+          },
+
+          {
+
+            "name": "reset",
+
+            "description": "Cancela el flujo SDD activo"
+
+          },
+
+          {
+
+            "name": "agent",
+
+            "description": "Fuerza un especialista: azure, blazor-server, maui, sdd, etc."
+
+          }
+
+        ]
+
+      }
+
+    ],
+
+    "configuration": {
+
+      "title": "Copilot Local Models",
+
+      "properties": {
+
+        "copilotLocal.lmStudioUrl": {
+
+          "type": "string",
+
+          "default": "http://localhost:1234",
+
+          "description": "URL del servidor LM Studio (API compatible con OpenAI).",
+
+          "pattern": "^https?://localhost(:[0-9]+)?$",
+
+          "patternErrorMessage": "Solo se permiten URLs localhost por seguridad."
+
+        },
+
+        "copilotLocal.defaultModel": {
+
+          "type": "string",
+
+          "default": "",
+
+          "description": "Modelo por defecto a usar. Si está vacío, se usa el primero disponible."
+
+        },
+
+        "copilotLocal.systemPrompt": {
+
+          "type": "string",
+
+          "default": "Eres un asistente de programación experto. Responde de forma clara, precisa y con ejemplos de código cuando sea apropiado.",
+
+          "description": "System prompt enviado a todos los modelos locales.",
+
+          "editPresentation": "multilineText"
+
+        },
+
+        "copilotLocal.maxTokens": {
+
+          "type": "number",
+
+          "default": 4096,
+
+          "minimum": 256,
+
+          "maximum": 131072,
+
+          "description": "Número máximo de tokens de salida por respuesta."
+
+        },
+
+        "copilotLocal.temperature": {
+
+          "type": "number",
+
+          "default": 0.7,
+
+          "minimum": 0,
+
+          "maximum": 2,
+
+          "description": "Temperatura del modelo (creatividad). 0 = determinista, 2 = muy creativo."
+
+        },
+
+        "copilotLocal.showStatusBar": {
+
+          "type": "boolean",
+
+          "default": true,
+
+          "description": "Mostrar indicador de estado en la barra inferior."
+
+        },
+
+        "copilotLocal.agentFilePath": {
+
+          "type": "array",
+
+          "items": {
+
+            "type": "string"
+
+          },
+
+          "default": [],
+
+          "description": "Rutas a archivos .md con instrucciones personalizadas. Se concatenan y se inyectan en el contexto de TODOS los especialistas activos."
+
+        },
+
+        "copilotLocal.skillsFilePath": {
+
+          "type": "string",
+
+          "default": "",
+
+          "description": "Ruta a un archivo SKILLS.md con habilidades adicionales a inyectar en el contexto del agente."
+
+        },
+
+        "copilotLocal.activeSpecialist": {
+
+          "type": "string",
+
+          "default": "orchestrator",
+
+          "description": "Especialista fijado para todas las conversaciones. 'orchestrator' = auto-detectar por contexto. Cámbialo desde el sidebar 'Agente & Skills'."
+
+        },
+
+        "copilotLocal.selfReview": {
+
+          "type": "boolean",
+
+          "default": true,
+
+          "description": "El agente revisa su propio output antes de presentarlo. Puede aumentar la latencia."
+
+        },
+
+        "copilotLocal.showMcpBanner": {
+
+          "type": "boolean",
+
+          "default": true,
+
+          "description": "Mostrar banner de instalación cuando faltan servidores MCP (ia-orquestador, ia-recuerdo)."
+
+        },
+
+        "copilotLocal.toolsMode": {
+
+          "type": "string",
+
+          "enum": [
+
+            "compact",
+
+            "full",
+
+            "off"
+
+          ],
+
+          "default": "compact",
+
+          "description": "Modo de inyección de herramientas VS Code en el system prompt. 'compact': tabla de nombres sin JSON schemas (recomendado para modelos 7-14B, contexto <32K). 'full': incluye JSON schemas completos (solo para modelos con contexto ≥48K). 'off': deshabilita las herramientas completamente."
+
+        },
+
+        "copilotLocal.maxIterations": {
+
+          "type": "number",
+
+          "default": 20,
+
+          "minimum": 1,
+
+          "maximum": 50,
+
+          "description": "Número máximo de iteraciones del loop agéntico (invocaciones de herramientas por respuesta). Workflows SDD usan ~9 iteraciones mínimo."
+
+        },
+
+        "copilotLocal.logLevel": {
+
+          "type": "string",
+
+          "enum": [
+
+            "DEBUG",
+
+            "INFO",
+
+            "WARN",
+
+            "ERROR"
+
+          ],
+
+          "enumDescriptions": [
+
+            "Todo: incluye trazas detalladas de contexto, tokens y mensajes.",
+
+            "Normal: eventos importantes (model info, budget, tool calls).",
+
+            "Solo avisos y errores.",
+
+            "Solo errores críticos."
+
+          ],
+
+          "default": "INFO",
+
+          "description": "Nivel mínimo de logging. Cambios aplicados inmediatamente sin reiniciar."
+
+        }
+
+      }
+
+    },
+
+    "commands": [
+
+      {
+
+        "command": "copilotLocal.listModels",
+
+        "title": "LM Studio: Listar Modelos Disponibles",
+
+        "category": "Copilot Local"
+
+      },
+
+      {
+
+        "command": "copilotLocal.switchModel",
+
+        "title": "LM Studio: Cambiar Modelo Activo",
+
+        "category": "Copilot Local"
+
+      },
+
+      {
+
+        "command": "copilotLocal.checkStatus",
+
+        "title": "LM Studio: Verificar Estado del Servidor",
+
+        "category": "Copilot Local"
+
+      },
+
+      {
+
+        "command": "copilotLocal.openModelManager",
+
+        "title": "LM Studio: Abrir Configuración",
+
+        "category": "Copilot Local"
+
+      },
+
+      {
+
+        "command": "copilotLocal.openMcpConfig",
+
+        "title": "Local AI: Abrir configuración MCP (.mcp.json)",
+
+        "category": "Copilot Local"
+
+      },
+
+      {
+
+        "command": "copilotLocal.checkMcpStatus",
+
+        "title": "Local AI: Verificar estado de servidores MCP",
+
+        "category": "Copilot Local"
+
+      },
+
+      {
+
+        "command": "copilotLocal.openLog",
+
+        "title": "Local AI: Abrir archivo de log",
+
+        "category": "Copilot Local"
+
+      }
+
+    ],
+
+    "menus": {
+
+      "commandPalette": [
+
+        {
+
+          "command": "copilotLocal.listModels",
+
+          "when": "true"
+
+        },
+
+        {
+
+          "command": "copilotLocal.switchModel",
+
+          "when": "true"
+
+        },
+
+        {
+
+          "command": "copilotLocal.checkStatus",
+
+          "when": "true"
+
+        },
+
+        {
+
+          "command": "copilotLocal.openMcpConfig",
+
+          "when": "true"
+
+        },
+
+        {
+
+          "command": "copilotLocal.checkMcpStatus",
+
+          "when": "true"
+
+        }
+
+      ]
+
+    },
+
+    "viewsContainers": {
+
+      "activitybar": [
+
+        {
+
+          "id": "copilotLocal-sidebar",
+
+          "title": "Local AI",
+
+          "icon": "assets/icon-activity.svg"
+
+        }
+
+      ]
+
+    },
+
+    "views": {
+
+      "copilotLocal-sidebar": [
+
+        {
+
+          "type": "webview",
+
+          "id": "copilotLocal.agentPanel",
+
+          "name": "Agente & Skills",
+
+          "icon": "assets/icon-activity.svg"
+
+        },
+
+        {
+
+          "id": "copilotLocal.sddPanel",
+
+          "name": "SDD Workflow",
+
+          "icon": "assets/icon-activity.svg"
+
+        }
+
+      ]
+
+    }
+
+  },
+
+  "scripts": {
+
+    "vscode:prepublish": "npm run compile",
+
+    "compile": "tsc -p ./",
+
+    "watch": "tsc -watch -p ./",
+
+    "lint": "eslint src --ext ts",
+
+    "package": "npm version patch --no-git-tag-version && npx @vscode/vsce package --no-dependencies",
+
+    "package:minor": "npm version minor --no-git-tag-version && npx @vscode/vsce package --no-dependencies",
+
+    "package:major": "npm version major --no-git-tag-version && npx @vscode/vsce package --no-dependencies",
+
+    "publish": "npx @vscode/vsce publish --no-dependencies"
+
+  },
+
+  "devDependencies": {
+
+    "@types/node": "^22.0.0",
+
+    "@types/vscode": "^1.95.0",
+
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+
+    "@typescript-eslint/parser": "^8.0.0",
+
+    "eslint": "^9.0.0",
+
+    "typescript": "^5.7.0",
+
+    "@vscode/vsce": "^3.0.0"
+
+  },
+
+  "dependencies": {}
+
+}
+

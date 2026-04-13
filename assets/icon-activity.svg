@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- Burbuja de chat -->
+  <path d="M12 2C6.477 2 2 6.25 2 11.5c0 2.278.87 4.355 2.296 5.95L3 22l4.95-1.575A10.34 10.34 0 0 0 12 21c5.523 0 10-4.25 10-9.5S17.523 2 12 2Z" fill="currentColor" opacity="0.15"/>
+  <path d="M12 2C6.477 2 2 6.25 2 11.5c0 2.278.87 4.355 2.296 5.95L3 22l4.95-1.575A10.34 10.34 0 0 0 12 21c5.523 0 10-4.25 10-9.5S17.523 2 12 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+  <!-- Texto AI -->
+  <text x="7" y="15.5" font-family="sans-serif" font-size="8" font-weight="bold" fill="currentColor">AI</text>
+</svg>

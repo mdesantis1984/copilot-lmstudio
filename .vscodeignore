@@ -1,0 +1,12 @@
+.vscode/**
+.vscode-test/**
+src/**
+scripts/**
+.gitignore
+out/test/**
+node_modules/**
+**/*.map
+**/*.ts
+!out/**
+!assets/agents/**
+!assets/icon.png
