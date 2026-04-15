@@ -628,16 +628,6 @@
 
           "icon": "assets/icon-activity.svg"
 
-        },
-
-        {
-
-          "id": "copilotLocal.sddPanel",
-
-          "name": "SDD Workflow",
-
-          "icon": "assets/icon-activity.svg"
-
         }
 
       ]

@@ -15,8 +15,6 @@ import { LocalModelProvider } from './localModelProvider';
 import { registerChatParticipant } from './chatParticipant';
 import { StatusBarManager } from './statusBar';
 import { AgentPanelProvider } from './agentPanel';
-import { SddPanelProvider } from './sddPanel';
-import { markTaskCompleted } from './sddWorkflow';
 import { ALL_SPECIALIST_IDS } from './agentRouter';
 import { openMcpConfig, getMcpStatus } from './mcpDetector';
 import { Logger } from './logger';
@@ -139,26 +137,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.registerWebviewViewProvider(AgentPanelProvider.viewType, agentProvider)
     );
 
-    // === 5. Registrar panel SDD (TreeView Sidebar) ===
-    const sddProvider = new SddPanelProvider();
-    const sddTreeView = vscode.window.createTreeView('copilotLocal.sddPanel', {
-        treeDataProvider: sddProvider,
-        showCollapseAll: false,
-    });
-    // Conectar toggle de checkboxes de tareas (paso Apply)
-    if (typeof sddTreeView.onDidChangeCheckboxState === 'function') {
-        context.subscriptions.push(
-            sddTreeView.onDidChangeCheckboxState(e => {
-                for (const [item] of e.items) {
-                    if (item.taskId) {
-                        markTaskCompleted(item.taskId);
-                    }
-                }
-            })
-        );
-    }
-    context.subscriptions.push(sddTreeView);
-    context.subscriptions.push(sddProvider);
+    // === 5. Registrar panel SDD (eliminado — integrado en Agente & Skills) ===
 
     // === 6. Comando para abrir .mcp.json ===
     context.subscriptions.push(

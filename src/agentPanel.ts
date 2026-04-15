@@ -314,13 +314,13 @@ export class AgentPanelProvider implements vscode.WebviewViewProvider {
         const sddBody = sddActive
             ? `<div class="sdd-stepper">${sddStepper}</div>
                <div class="sdd-lbl"><span>&#x25B6; ${escapeHtml(sddStepName)}</span><span class="sdd-count">${sddStepIdx}&thinsp;/&thinsp;9</span></div>
-               <div class="prog-track"><div class="prog-fill" style="width:${Math.round(sddStepIdx/9*100)}%"></div></div>
-               <div class="btn-bar" style="margin-top:8px">
-                   <button class="ibtn xl danger" data-action="cancelSdd" title="Cancelar flujo SDD">&#x23F9;&ensp;Cancelar SDD</button>
-               </div>`
+               <div class="prog-track"><div class="prog-fill" style="width:${Math.round(sddStepIdx/9*100)}%"></div></div>`
             : `<div class="sdd-stepper">${sddStepper}</div>
-               <p class="hint" style="margin:5px 0 8px">Explore&#x2192;Design&#x2192;Spec&#x2192;Propose&#x2192;Tasks&#x2192;Apply&#x2192;Verify&#x2192;Archive</p>
-               <button class="ibtn xl primary" data-action="startSdd" title="Iniciar SDD Workflow">&#x25B6;&ensp;Iniciar SDD Workflow</button>`;
+               <p class="hint" style="margin:8px 0 0">Explore&#x2192;Design&#x2192;Spec&#x2192;Propose&#x2192;Tasks&#x2192;Apply&#x2192;Verify&#x2192;Archive</p>`;
+
+        const sddBtn = sddActive
+            ? `<button class="ibtn danger" data-action="cancelSdd" title="Cancelar flujo SDD">&#x23F9;</button>`
+            : `<button class="ibtn primary" data-action="startSdd" title="Iniciar SDD Workflow">&#x25B6;</button>`;
 
         const agentChips = agentPaths.length === 0
             ? `<div class="empty-hint">Ninguno &mdash; se usan los bundleados</div>`
@@ -549,7 +549,7 @@ export class AgentPanelProvider implements vscode.WebviewViewProvider {
         /* ── SDD stepper ────────────────────────────────────────────── */
         .sdd-stepper {
             display: flex; align-items: center;
-            gap: 0; margin: 10px 0 8px;
+            gap: 0; margin: 4px 0 6px;
         }
         .s-dot {
             width: 26px; height: 26px; border-radius: 50%;
@@ -763,6 +763,9 @@ export class AgentPanelProvider implements vscode.WebviewViewProvider {
         <div class="card-hdr">
             <span class="card-ico">&#x1F4CB;</span>
             <span class="card-ttl">SDD Workflow</span>
+            <div class="ibar" style="margin:0 0 0 auto">
+                ${sddBtn}
+            </div>
         </div>
         ${sddBody}
     </div>
