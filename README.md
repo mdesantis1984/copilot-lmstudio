@@ -22,7 +22,7 @@ Potencia GitHub Copilot con **modelos de IA locales de coste cero** usando [LM S
 | 🧠 **27 Agentes Especialistas** | Sistema de agentes especializados para .NET, web, Python, seguridad y más |
 | 🛠️ **LM Tools (Agent Mode)** | 3 herramientas registradas en Copilot Agent Mode: `localai_startSdd`, `localai_setSpecialist`, `localai_getStatus` |
 | 📊 **Panel de Estadísticas** | Tracking de requests, tokens in/out, errores, duración promedio y tasa de éxito |
-| 🎨 **Sidebar Futurista** | Avatar AI animado, stepper SDD, config en grid, botones icon-only con tooltips |
+| 🎨 **Sidebar Futurista** | Avatar AI animado, stepper SDD integrado en panel Agente & Skills, config en grid, botones icon-only con tooltips |
 
 ---
 
@@ -219,9 +219,6 @@ VS Code Copilot Chat
        │               ├── Config en grid 2×3
        │               └── Stats en grid 3×2 (JetBrains Mono)
        │
-       ├── Sidebar TreeView (SddPanelProvider)
-       │       └── src/sddPanel.ts              ← estado del flujo SDD (ThemeIcons)
-       │
        └── LM Tools (Copilot Agent Mode)
                └── src/extension.ts
                        ├── localai_startSdd      ← inicia flujo SDD desde agentes externos
@@ -255,7 +252,7 @@ El panel lateral (`Local AI`) provee control visual completo sobre la extensión
 - **Avatar AI** — SVG animado con anillos giratorios (purple/cyan) y ojos parpadeantes
 - **Status chip** — estado de LM Studio en tiempo real (online/offline/verificando) con dot pulsante
 - **Especialista** — selector del agente activo (Auto ó forzado)
-- **SDD Stepper** — 9 dots (IN→EX→DE→SP→PR→TA→AP→VE→AR) con líneas de progreso
+- **SDD Stepper** — 9 dots (IN→EX→DE→SP→PR→TA→AP→VE→AR) con líneas de progreso; botones `▶ Iniciar` / `⏹ Cancelar` en el header de la card (igual que Agent.md / Skills.md)
 - **Config** — grid 2×3 de tiles: temperatura, maxTokens, maxIteraciones, toolsMode, logLevel
 - **Estadísticas** — grid 3×2: requests, tokens ↑, tokens ↓, errores, avg dur, % éxito
 - **Agent.md / Skills.md** — gestión de archivos personalizados con chips + botones icon-only
@@ -290,6 +287,11 @@ MIT © ThisCloud Services
 ---
 
 ## Changelog
+
+### v1.1.53 (2026-04-15)
+- **UI/UX sidebar**: eliminado el panel TreeView separado "SDD Workflow" — el stepper SDD ya está integrado en la card del webview "Agente & Skills"
+- **SDD card**: botones `▶ Iniciar` / `⏹ Cancelar` movidos al header de la card como icon-buttons (consistente con Agent.md y Skills.md); eliminado el botón `xl primary` de ancho completo
+- **Padding ajustado**: `.sdd-stepper` con `margin: 4px 0 6px` y hint con `margin-top: 8px` para mejor separación visual
 
 ### v1.1.52 (2026-04-15)
 - **StatsTracker**: nuevo módulo de tracking persistente (tokens in/out, requests, errores, duración media, tasa de éxito) — sobrevive recargas via `globalState`
