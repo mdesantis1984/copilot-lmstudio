@@ -269,9 +269,9 @@ export class LmStudioClient {
         }
     }
 
-    async listModels(): Promise<LmStudioModel[]> {
+    async listModels(signal?: AbortSignal): Promise<LmStudioModel[]> {
         const response = await fetch(`${this.apiUrl}/models`, {
-            signal: AbortSignal.timeout(10000),
+            signal: signal ?? AbortSignal.timeout(10000),
         });
         if (!response.ok) {
             throw new Error(`Error al listar modelos de LM Studio: ${response.statusText}`);

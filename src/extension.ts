@@ -17,13 +17,16 @@ import { StatusBarManager } from './statusBar';
 import { AgentPanelProvider } from './agentPanel';
 import { SddPanelProvider } from './sddPanel';
 import { markTaskCompleted } from './sddWorkflow';
+import { ALL_SPECIALIST_IDS } from './agentRouter';
 import { openMcpConfig, getMcpStatus } from './mcpDetector';
 import { Logger } from './logger';
+import { StatsTracker } from './statsTracker';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-    // === 0. Inicializar Logger (debe ser lo primero) ===
+    // === 0. Inicializar Logger y StatsTracker (deben ser lo primero) ===
     const log = Logger.instance;
     await log.init(context);
+    StatsTracker.init(context);
     log.info('Extension', 'Activating Copilot + LM Studio...');
 
     const manager = new ModelManager();
@@ -190,6 +193,79 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
         })
     );
+
+    // === 9. Comando para resetear estadísticas ===
+    context.subscriptions.push(
+        vscode.commands.registerCommand('copilotLocal.resetStats', () => {
+            StatsTracker.instance.reset();
+            vscode.window.showInformationMessage('✅ Estadísticas de Local AI reseteadas.');
+        })
+    );
+
+    // === 10. Registrar LM Tools para GitHub Copilot Agent Mode ===
+    // Permite que GitHub Copilot nativo invoque SDD, cambio de especialista y status.
+    if (typeof (vscode.lm as Record<string, unknown>).registerTool === 'function') {
+        const registerTool = (vscode.lm as unknown as {
+            registerTool(name: string, tool: {
+                invoke(opts: { input: Record<string, unknown> }, token: vscode.CancellationToken): Thenable<vscode.LanguageModelToolResult>;
+            }): vscode.Disposable;
+        }).registerTool;
+
+        context.subscriptions.push(
+            registerTool('localai_startSdd', {
+                invoke: async (opts, _token) => {
+                    const goal = String((opts.input as Record<string, unknown>).goal ?? '').trim();
+                    await vscode.commands.executeCommand('workbench.action.chat.open', {
+                        query: `@localai /sdd ${goal}`,
+                    });
+                    return new vscode.LanguageModelToolResult([
+                        new vscode.LanguageModelTextPart(
+                            `SDD Workflow iniciado${goal ? ` con el objetivo: "${goal}"` : ''}. ` +
+                            `Copilot ha abierto el chat @localai. Sigue los 9 pasos: Explore → Design → Spec → Propose → Tasks → Apply → Verify → Archive.`
+                        ),
+                    ]);
+                },
+            }),
+            registerTool('localai_setSpecialist', {
+                invoke: async (opts, _token) => {
+                    const specialist = String((opts.input as Record<string, unknown>).specialist ?? 'orchestrator');
+                    const valid = ['orchestrator', ...ALL_SPECIALIST_IDS];
+                    const id = valid.includes(specialist) ? specialist : 'orchestrator';
+                    await vscode.workspace.getConfiguration('copilotLocal').update(
+                        'activeSpecialist', id, vscode.ConfigurationTarget.Global
+                    );
+                    return new vscode.LanguageModelToolResult([
+                        new vscode.LanguageModelTextPart(
+                            `Especialista activo cambiado a "${id}". Las próximas consultas a @localai usarán este especialista.`
+                        ),
+                    ]);
+                },
+            }),
+            registerTool('localai_getStatus', {
+                invoke: async (_opts, _token) => {
+                    const status = await manager.getBackendStatus();
+                    const stats = StatsTracker.instance.get();
+                    const successRate = stats.totalRequests > 0
+                        ? Math.round(((stats.totalRequests - stats.totalErrors) / stats.totalRequests) * 100)
+                        : 100;
+                    const lines = status.available
+                        ? [
+                            `✅ LM Studio activo en ${status.url}`,
+                            `Modelos cargados: ${status.modelCount}`,
+                            `Último modelo: ${stats.lastModel || 'N/A'}`,
+                            `Requests totales: ${stats.totalRequests}`,
+                            `Tokens enviados: ${StatsTracker.formatTokens(stats.totalTokensIn)} | recibidos: ${StatsTracker.formatTokens(stats.totalTokensOut)}`,
+                            `Tasa de éxito: ${successRate}% | Errores: ${stats.totalErrors}`,
+                        ]
+                        : [`❌ LM Studio no disponible en ${status.url}`];
+                    return new vscode.LanguageModelToolResult([
+                        new vscode.LanguageModelTextPart(lines.join('\n')),
+                    ]);
+                },
+            })
+        );
+        log.info('Extension', 'LM Tools registrados: localai_startSdd, localai_setSpecialist, localai_getStatus');
+    }
 
     // === 5. Iniciar status bar ===
     statusBar.start(context);

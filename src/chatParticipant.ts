@@ -37,6 +37,7 @@ import {
     STEP_NAMES,
 } from './sddWorkflow';
 import { getMcpStatus, showMcpInstallBanner, saveDroppedHistoryToMemory } from './mcpDetector';
+import { StatsTracker } from './statsTracker';
 
 /** Versión visible en el header del chat — confirma qué código está activo. */
 const EXTENSION_VERSION = '1.1.44';
@@ -623,6 +624,14 @@ async function handleChat(
         stream.markdown(`*📋 SDD — ${STEP_NAMES[sddState.step]} (${stepIdx}/9) · Tu respuesta avanzará al paso siguiente · \`/reset\` para cancelar*\n\n`);
     }
 
+    // === Stats: interceptar stream para contar chars de respuesta ===
+    const requestStartMs = Date.now();
+    let responseChars = 0;
+    const markdownInterceptor = (text: string): void => {
+        responseChars += text.length;
+        stream.markdown(text);
+    };
+
     try {
         // Contexto disponible para mostrar al usuario (incluye versión para diagnóstico)
         const ctxKTokens = Math.round(contextLength / 1000);
@@ -632,7 +641,7 @@ async function handleChat(
             manager.lmStudio,
             model.id,
             messages,
-            (text) => stream.markdown(text),
+            markdownInterceptor,
             (msg) => stream.progress(msg),
             request.toolInvocationToken,
             token,
@@ -640,6 +649,15 @@ async function handleChat(
         );
 
         activeModelId = model.id;
+
+        // === Registrar stats de la request exitosa ===
+        StatsTracker.instance.record({
+            tokensIn:    StatsTracker.estimateTokensIn(messages),
+            tokensOut:   StatsTracker.estimateTokensOut(responseChars),
+            durationMs:  Date.now() - requestStartMs,
+            error:       false,
+            model:       model.name,
+        });
 
         // === Auto-avanzar paso SDD tras respuesta del modelo ===
         // Avanzar siempre que SDD esté activo — incluye el paso init después de /sdd.
@@ -656,6 +674,15 @@ async function handleChat(
             }
         }
     } catch (err) {
+        // === Registrar stats del error ===
+        StatsTracker.instance.record({
+            tokensIn:   StatsTracker.estimateTokensIn(messages),
+            tokensOut:  0,
+            durationMs: Date.now() - requestStartMs,
+            error:      true,
+            model:      model.name,
+        });
+
         if (!token.isCancellationRequested) {
             const errMsg = err instanceof Error ? err.message : String(err);
             stream.markdown(

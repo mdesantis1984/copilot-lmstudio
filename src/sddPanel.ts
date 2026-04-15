@@ -90,10 +90,12 @@ export class SddStepItem extends vscode.TreeItem {
         const isPast = isPastStep(step, state.step);
         const isIdle = state.step === 'idle' || state.step === 'completed';
 
-        const label = overrideLabel ?? STEP_NAMES[step];
-        const icon = isIdle ? '○' : isPast ? '✅' : isActive ? '▶' : '⏳';
+        // Label limpio: quitar el prefijo "N. " que viene de STEP_NAMES
+        const rawLabel = overrideLabel ?? STEP_NAMES[step];
+        const label = rawLabel.replace(/^\d+\.\s*/, '');
+        const stepNum = STEP_SEQUENCE.indexOf(step) + 1;
 
-        super(`${icon} ${label}`, step === 'apply' && state.taskList.length > 0
+        super(label, step === 'apply' && state.taskList.length > 0
             ? vscode.TreeItemCollapsibleState.Collapsed
             : vscode.TreeItemCollapsibleState.None);
 
@@ -102,17 +104,18 @@ export class SddStepItem extends vscode.TreeItem {
 
         this.contextValue = isActive ? 'sdd-step-active' : isPast ? 'sdd-step-done' : 'sdd-step-pending';
 
-        // Resaltar el paso activo con negrita en la descripción
         if (isActive && !isIdle) {
-            const stepNum = STEP_SEQUENCE.indexOf(step) + 1;
-            this.description = `\u2190 actual (${stepNum}/9)`;
-            this.iconPath = new vscode.ThemeIcon('play', new vscode.ThemeColor('charts.blue'));
+            this.description = `← ${stepNum}/9`;
+            this.iconPath = new vscode.ThemeIcon('play-circle', new vscode.ThemeColor('charts.blue'));
         } else if (isPast) {
-            this.iconPath = new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green'));
+            this.description = `✓`;
+            this.iconPath = new vscode.ThemeIcon('pass-filled', new vscode.ThemeColor('charts.green'));
         } else if (!isIdle) {
-            this.iconPath = new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('disabledForeground'));
+            this.description = `${stepNum}/9`;
+            this.iconPath = new vscode.ThemeIcon('circle-large-outline', new vscode.ThemeColor('disabledForeground'));
         } else {
-            this.iconPath = new vscode.ThemeIcon('circle-outline');
+            this.description = `${stepNum}`;
+            this.iconPath = new vscode.ThemeIcon('circle-large-outline');
         }
     }
 }

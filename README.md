@@ -1,6 +1,7 @@
 # Copilot Local Models — Zero Cost AI
 
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.95%2B-blue?logo=visualstudiocode)](https://code.visualstudio.com/)
+[![Version](https://img.shields.io/badge/version-1.1.52-blueviolet)](https://github.com/mdesantis1984/copilot-lmstudio)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10%20LTS-purple?logo=dotnet)](https://dotnet.microsoft.com/)
 
@@ -17,14 +18,17 @@ Potencia GitHub Copilot con **modelos de IA locales de coste cero** usando [LM S
 | 🔄 **Streaming** | Respuestas streameadas en tiempo real, igual que los modelos cloud |
 | 🔒 **Privacidad total** | El código nunca sale de tu máquina |
 | 💸 **Coste cero** | Sin API keys, sin tokens de pago, sin límites |
-| 🎯 **Motor principal: LM Studio** | API OpenAI-compatible en `localhost:1234` — compatibe con cualquier modelo GGUF |
+| 🎯 **Motor principal: LM Studio** | API OpenAI-compatible en `localhost:1234` — compatible con cualquier modelo GGUF |
 | 🧠 **27 Agentes Especialistas** | Sistema de agentes especializados para .NET, web, Python, seguridad y más |
+| 🛠️ **LM Tools (Agent Mode)** | 3 herramientas registradas en Copilot Agent Mode: `localai_startSdd`, `localai_setSpecialist`, `localai_getStatus` |
+| 📊 **Panel de Estadísticas** | Tracking de requests, tokens in/out, errores, duración promedio y tasa de éxito |
+| 🎨 **Sidebar Futurista** | Avatar AI animado, stepper SDD, config en grid, botones icon-only con tooltips |
 
 ---
 
 ## Agentes Especialistas (.NET 10 Ready)
 
-El plugin incluye 26 agentes especializados. Se activan automáticamente según el contexto del workspace o mediante menciones explícas (`@azure`, `@csharp`, etc.):
+El plugin incluye **27 agentes especializados**. Se activan automáticamente según el contexto del workspace o mediante menciones explícas (`@azure`, `@csharp`, etc.):
 
 | Agente | Especialidad |
 |--------|-------------|
@@ -133,6 +137,7 @@ Los modelos cargados en LM Studio aparecen automáticamente en el **selector des
 | `Copilot Local: Verificar Estado de Backends` | Estado del servidor LM Studio |
 | `Copilot Local: Abrir Panel de Agentes` | Panel visual de especialistas disponibles |
 | `Copilot Local: Configurar MCP` | Abrir/editar la configuración de MCP servers |
+| `Copilot Local: Resetear Estadísticas` | Borra el historial de requests/tokens acumulados |
 
 ---
 
@@ -197,13 +202,31 @@ VS Code Copilot Chat
        │       └── src/localModelProvider.ts
        │               └── src/lmStudioClient.ts → LM Studio API :1234/v1
        │
-       └── ChatParticipant (@localai)
-               └── src/chatParticipant.ts
-                       ├── src/agentRouter.ts     ← detecta especialista
-                       ├── src/sddWorkflow.ts     ← flujo SDD
-                       ├── src/toolEngine.ts      ← herramientas del agente
-                       ├── src/mcpDetector.ts     ← estado MCP
-                       └── assets/agents/*.md     ← 27 definiciones de agentes
+       ├── ChatParticipant (@localai)
+       │       └── src/chatParticipant.ts
+       │               ├── src/agentRouter.ts     ← detecta especialista
+       │               ├── src/sddWorkflow.ts     ← flujo SDD (9 pasos)
+       │               ├── src/toolEngine.ts      ← herramientas del agente
+       │               ├── src/mcpDetector.ts     ← estado MCP
+       │               ├── src/statsTracker.ts    ← tracking de uso (tokens, requests)
+       │               └── assets/agents/*.md     ← 27 definiciones de agentes
+       │
+       ├── Sidebar Webview (AgentPanelProvider)
+       │       └── src/agentPanel.ts
+       │               ├── Avatar AI animado (SVG)
+       │               ├── Status chip LM Studio
+       │               ├── SDD Stepper (9 dots conectados)
+       │               ├── Config en grid 2×3
+       │               └── Stats en grid 3×2 (JetBrains Mono)
+       │
+       ├── Sidebar TreeView (SddPanelProvider)
+       │       └── src/sddPanel.ts              ← estado del flujo SDD (ThemeIcons)
+       │
+       └── LM Tools (Copilot Agent Mode)
+               └── src/extension.ts
+                       ├── localai_startSdd      ← inicia flujo SDD desde agentes externos
+                       ├── localai_setSpecialist ← fija el especialista activo
+                       └── localai_getStatus     ← devuelve estado + estadísticas
 ```
 
 ---
@@ -225,6 +248,32 @@ code --install-extension copilot-lmstudio-*.vsix
 
 ---
 
+## Sidebar — Panel de Control
+
+El panel lateral (`Local AI`) provee control visual completo sobre la extensión:
+
+- **Avatar AI** — SVG animado con anillos giratorios (purple/cyan) y ojos parpadeantes
+- **Status chip** — estado de LM Studio en tiempo real (online/offline/verificando) con dot pulsante
+- **Especialista** — selector del agente activo (Auto ó forzado)
+- **SDD Stepper** — 9 dots (IN→EX→DE→SP→PR→TA→AP→VE→AR) con líneas de progreso
+- **Config** — grid 2×3 de tiles: temperatura, maxTokens, maxIteraciones, toolsMode, logLevel
+- **Estadísticas** — grid 3×2: requests, tokens ↑, tokens ↓, errores, avg dur, % éxito
+- **Agent.md / Skills.md** — gestión de archivos personalizados con chips + botones icon-only
+
+---
+
+## LM Tools (Copilot Agent Mode)
+
+La extensión registra 3 herramientas en el namespace de LM Tools de VS Code (`vscode.lm.registerTool`), disponibles en modo Agent de Copilot:
+
+| Tool | Descripción |
+|------|-------------|
+| `localai_startSdd` | Inicia el flujo SDD invocando `@localai /sdd` en el chat |
+| `localai_setSpecialist` | Fija el agente especialista activo (p.ej. `csharp`, `azure`, `auto`) |
+| `localai_getStatus` | Retorna el estado de LM Studio + estadísticas de uso acumuladas |
+
+---
+
 ## Seguridad
 
 - ✅ Solo se permiten conexiones a `localhost` (previene SSRF)
@@ -237,3 +286,21 @@ code --install-extension copilot-lmstudio-*.vsix
 ## Licencia
 
 MIT © ThisCloud Services
+
+---
+
+## Changelog
+
+### v1.1.52 (2026-04-15)
+- **StatsTracker**: nuevo módulo de tracking persistente (tokens in/out, requests, errores, duración media, tasa de éxito) — sobrevive recargas via `globalState`
+- **Sidebar futurista**: agentPanel rediseñado con avatar SVG animado (purple/cyan), stepper SDD de 9 dots, config en grid 2×3, stats en grid 3×2 (JetBrains Mono)
+- **Fix race condition**: `_cachedStatus` en AgentPanelProvider evita que `_refreshPanel()` resetee el chip de estado antes de recibir el resultado async de LM Studio
+- **LM Tools**: 3 herramientas registradas en Copilot Agent Mode (`localai_startSdd`, `localai_setSpecialist`, `localai_getStatus`) y sidebar SddPanelProvider como TreeView
+- **SDD Panel mejorado**: iconos actualizados (`play-circle`, `pass-filled`), labels sin prefijo numérico, descripción compacta por paso
+- **lmStudioClient**: `ModelInfo` interface, `getFullModelInfo()`, `reloadModel()`, `estimateTokens()`, `CHARS_PER_TOKEN=2.0` (fix `n_keep >= n_ctx`)
+- **modelManager**: timeout de 4s en status check para no bloquear el panel
+- **mcpDetector**: detección de ia-orquestador + ia-recuerdo, `saveDroppedHistoryToMemory()` para persistir historial recortado
+- **MCP commands**: `copilotLocal.openMcpConfig` y `copilotLocal.checkMcpStatus` en paleta
+
+### v1.1.46
+- Commit inicial público — LM Studio + Copilot Chat integration baseline
