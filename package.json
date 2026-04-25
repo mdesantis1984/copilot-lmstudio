@@ -6,7 +6,7 @@
 
   "description": "Integra LM Studio con GitHub Copilot Chat. Modelos locales sin coste, sin Internet, con privacidad total.",
 
-  "version": "1.1.45",
+  "version": "1.1.62",
 
   "publisher": "madesantis",
 
@@ -83,6 +83,96 @@
         "vendor": "lmstudio-local",
 
         "displayName": "LM Studio (Local)"
+
+      }
+
+    ],
+
+    "languageModelTools": [
+
+      {
+
+        "name": "localai_startSdd",
+
+        "displayName": "Iniciar SDD Workflow (Local AI)",
+
+        "modelDescription": "Inicia el flujo Spec-Driven Development de 9 pasos en @localai para desarrollar un feature de forma guiada (Explore → Design → Spec → Propose → Tasks → Apply → Verify → Archive).",
+
+        "icon": "$(debug-start)",
+
+        "inputSchema": {
+
+          "type": "object",
+
+          "properties": {
+
+            "goal": {
+
+              "type": "string",
+
+              "description": "Objetivo o feature a desarrollar con SDD (min. 5 caracteres)"
+
+            }
+
+          }
+
+        }
+
+      },
+
+      {
+
+        "name": "localai_setSpecialist",
+
+        "displayName": "Cambiar Especialista (Local AI)",
+
+        "modelDescription": "Cambia el especialista activo de Local AI. Especialistas disponibles: orchestrator (auto), csharp, blazor-server, blazor-wasm, azure, typescript, go, django-drf, microservices, minimal-api, mudblazor, playwright, pytest, solid-principles, web-security, maui, clean-arch, interface-programming, frontend, code-review, jira, unit-testing, infrastructure, ai-sdk, angular.",
+
+        "icon": "$(person)",
+
+        "inputSchema": {
+
+          "type": "object",
+
+          "properties": {
+
+            "specialist": {
+
+              "type": "string",
+
+              "description": "ID del especialista a activar"
+
+            }
+
+          },
+
+          "required": [
+
+            "specialist"
+
+          ]
+
+        }
+
+      },
+
+      {
+
+        "name": "localai_getStatus",
+
+        "displayName": "Estado de Local AI",
+
+        "modelDescription": "Obtiene el estado actual de LM Studio: disponibilidad del servidor, modelos cargados y estadísticas de uso (requests, tokens, errores).",
+
+        "icon": "$(pulse)",
+
+        "inputSchema": {
+
+          "type": "object",
+
+          "properties": {}
+
+        }
 
       }
 
@@ -322,6 +412,20 @@
 
         },
 
+        "copilotLocal.maxInjectedTools": {
+
+          "type": "number",
+
+          "default": 60,
+
+          "minimum": 1,
+
+          "maximum": 1000,
+
+          "description": "Tope máximo de herramientas a inyectar en el system prompt. Reduce el riesgo de desbordar la ventana de contexto en modelos con contextLength pequeño. Ajusta con cuidado."
+
+        },
+
         "copilotLocal.maxIterations": {
 
           "type": "number",
@@ -444,6 +548,16 @@
 
         "category": "Copilot Local"
 
+      },
+
+      {
+
+        "command": "copilotLocal.resetStats",
+
+        "title": "Local AI: Resetear estadísticas de uso",
+
+        "category": "Copilot Local"
+
       }
 
     ],
@@ -525,16 +639,6 @@
           "id": "copilotLocal.agentPanel",
 
           "name": "Agente & Skills",
-
-          "icon": "assets/icon-activity.svg"
-
-        },
-
-        {
-
-          "id": "copilotLocal.sddPanel",
-
-          "name": "SDD Workflow",
 
           "icon": "assets/icon-activity.svg"
 
