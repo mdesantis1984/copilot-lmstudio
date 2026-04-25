@@ -218,13 +218,14 @@ function collectFilesRecursive(dir: string, results: string[], depth: number, ma
     }
 
     for (const entry of entries) {
-        if (entry.startsWith('.') || entry === 'node_modules' || entry === 'bin' || entry === 'obj') { continue; }
+        if (entry.startsWith('.') || entry === 'node_modules' || entry === 'bin' || entry === 'obj' || entry === 'out') { continue; }
         const fullPath = path.join(dir, entry);
         try {
             const stat = fs.statSync(fullPath);
             if (stat.isDirectory()) {
                 collectFilesRecursive(fullPath, results, depth + 1, maxDepth);
-            } else {
+            } else if (!/\.(md|txt)$/i.test(entry)) {
+                // Excluir markdown y texto plano — no son señales de especialistas de código
                 results.push(fullPath);
             }
         } catch {
