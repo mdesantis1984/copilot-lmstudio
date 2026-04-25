@@ -18,6 +18,145 @@ export interface McpStatus {
     mcpFilePath: string;
 }
 
+interface JsonRpcToolPart {
+    value?: string;
+    text?: string;
+    data?: unknown;
+}
+
+function decodeToolContent(content: unknown): string {
+    if (typeof content === 'string') { return content; }
+    if (Array.isArray(content)) {
+        return content.map(part => decodeToolContent(part)).filter(Boolean).join('\n');
+    }
+    if (!content || typeof content !== 'object') { return ''; }
+
+    const part = content as JsonRpcToolPart & Record<string, unknown>;
+    if (typeof part.value === 'string') { return part.value; }
+    if (typeof part.text === 'string') { return part.text; }
+
+    if ('data' in part) {
+        const data = part.data;
+        const anyBuf: any = (globalThis as any).Buffer;
+        if (anyBuf && anyBuf.isBuffer && anyBuf.isBuffer(data)) {
+            return anyBuf.from(data).toString('utf8');
+        }
+        if (data instanceof Uint8Array) { return new TextDecoder().decode(data); }
+        if (Array.isArray(data)) { return new TextDecoder().decode(Uint8Array.from(data)); }
+    }
+
+    return JSON.stringify(content);
+}
+
+async function callMcpTool(
+    mcpUrl: string,
+    name: string,
+    args: Record<string, unknown> = {},
+    timeoutMs = 5_000
+): Promise<string | null> {
+    try {
+        const response = await fetch(mcpUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: { name, arguments: args },
+            }),
+            signal: AbortSignal.timeout(timeoutMs),
+        });
+
+        if (!response.ok) {
+            return null;
+        }
+
+        const raw = await response.text();
+        try {
+            const parsed = JSON.parse(raw) as { result?: unknown; error?: { message?: string } };
+            if (parsed.error) { return null; }
+            return decodeToolContent((parsed.result ?? parsed) as unknown);
+        } catch {
+            return raw.trim();
+        }
+    } catch {
+        return null;
+    }
+}
+
+function buildMemoryQuery(prompt: string): string {
+    return prompt
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 180);
+}
+
+const startedMemorySessions = new Set<string>();
+
+function memorySessionKey(memoryUrl: string, project: string, agent: string): string {
+    return `${memoryUrl}::${project}::${agent}`;
+}
+
+export async function getMemorySearchContext(memoryUrl: string, prompt: string, project: string): Promise<string> {
+    const query = buildMemoryQuery(prompt);
+    const [context, search] = await Promise.all([
+        callMcpTool(memoryUrl, 'mem_context', { project, agent: 'orchestrator', goal: query }),
+        callMcpTool(memoryUrl, 'mem_search', { project, query, topic_key: query, agent: 'orchestrator' }),
+    ]);
+
+    const blocks: string[] = [];
+    if (context) { blocks.push(`### mem_context\n${context}`); }
+    if (search) {
+        blocks.push(`### mem_search\n${search}`);
+
+        const ids = [...new Set((search.match(/(?:observation_id|id)\s*[:=]?\s*(\d+)/gi) ?? [])
+            .map(match => Number((match.match(/(\d+)/)?.[1] ?? '0')))
+            .filter(n => Number.isFinite(n) && n > 0))].slice(0, 3);
+
+        for (const id of ids) {
+            const timeline = await callMcpTool(memoryUrl, 'mem_timeline', { observation_id: id, project, agent: 'orchestrator' });
+            const observation = await callMcpTool(memoryUrl, 'mem_get_observation', { id, project, agent: 'orchestrator' });
+            if (timeline) { blocks.push(`### mem_timeline #${id}\n${timeline}`); }
+            if (observation) { blocks.push(`### mem_get_observation #${id}\n${observation}`); }
+        }
+    }
+
+    return blocks.join('\n\n');
+}
+
+export async function startMemorySession(
+    memoryUrl: string,
+    project: string,
+    goal: string,
+    agent = 'orchestrator'
+): Promise<void> {
+    const key = memorySessionKey(memoryUrl, project, agent);
+    if (startedMemorySessions.has(key)) { return; }
+    startedMemorySessions.add(key);
+    await callMcpTool(memoryUrl, 'mem_session_start', { project, agent, goal });
+}
+
+export async function summarizeMemorySession(
+    memoryUrl: string,
+    params: {
+        project: string;
+        goal: string;
+        discoveries: string[];
+        accomplished: string[];
+        files_touched: string[];
+        agent?: string;
+    }
+): Promise<void> {
+    await callMcpTool(memoryUrl, 'mem_session_summary', {
+        project: params.project,
+        agent: params.agent ?? 'orchestrator',
+        goal: params.goal,
+        discoveries: params.discoveries,
+        accomplished: params.accomplished,
+        files_touched: params.files_touched,
+    });
+}
+
 /**
  * Lee %USERPROFILE%\.mcp.json y verifica si los servidores están registrados.
  */
@@ -68,34 +207,15 @@ export async function saveDroppedHistoryToMemory(
     const content = messages
         .map(m => `**[${m.role === 'user' ? 'Usuario' : 'Asistente'}]**: ${m.content}`)
         .join('\n\n---\n\n');
+    const result = await callMcpTool(memoryUrl, 'mem_save', {
+        title: `Historial recortado — ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
+        content,
+        type: 'context',
+        project: 'copilot-lmstudio',
+    });
 
-    const body = {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'tools/call',
-        params: {
-            name: 'mem_save',
-            arguments: {
-                title: `Historial recortado — ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
-                content,
-                type: 'context',
-                project: 'copilot-lmstudio',
-            },
-        },
-    };
-
-    try {
-        const response = await fetch(memoryUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(5_000),
-        });
-        if (!response.ok) {
-            console.warn(`[copilot-lmstudio] ia-recuerdo save failed: HTTP ${response.status}`);
-        }
-    } catch (e) {
-        console.warn(`[copilot-lmstudio] ia-recuerdo unreachable: ${e}`);
+    if (result === null) {
+        console.warn('[copilot-lmstudio] ia-recuerdo save failed or unreachable');
     }
 }
 

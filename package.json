@@ -6,7 +6,7 @@
 
   "description": "Integra LM Studio con GitHub Copilot Chat. Modelos locales sin coste, sin Internet, con privacidad total.",
 
-  "version": "1.1.54",
+  "version": "1.1.62",
 
   "publisher": "madesantis",
 
@@ -409,6 +409,20 @@
           "default": "compact",
 
           "description": "Modo de inyección de herramientas VS Code en el system prompt. 'compact': tabla de nombres sin JSON schemas (recomendado para modelos 7-14B, contexto <32K). 'full': incluye JSON schemas completos (solo para modelos con contexto ≥48K). 'off': deshabilita las herramientas completamente."
+
+        },
+
+        "copilotLocal.maxInjectedTools": {
+
+          "type": "number",
+
+          "default": 60,
+
+          "minimum": 1,
+
+          "maximum": 1000,
+
+          "description": "Tope máximo de herramientas a inyectar en el system prompt. Reduce el riesgo de desbordar la ventana de contexto en modelos con contextLength pequeño. Ajusta con cuidado."
 
         },
 

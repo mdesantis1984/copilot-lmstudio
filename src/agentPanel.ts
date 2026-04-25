@@ -23,6 +23,8 @@ export class AgentPanelProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private readonly _disposables: vscode.Disposable[] = [];
     private _cachedStatus: BackendStatus | null = null;
+    private _busy: boolean = false;
+    private _busyMessage?: string;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -90,10 +92,13 @@ export class AgentPanelProvider implements vscode.WebviewViewProvider {
                 case 'setConfig': {
                     const allowed = ['temperature', 'maxTokens', 'maxIterations', 'toolsMode', 'logLevel', 'activeSpecialist'];
                     if (message.key && allowed.includes(message.key)) {
+                        const target = message.key === 'activeSpecialist'
+                            ? vscode.ConfigurationTarget.Workspace
+                            : vscode.ConfigurationTarget.Global;
                         await vscode.workspace.getConfiguration('copilotLocal').update(
                             message.key,
                             message.value,
-                            vscode.ConfigurationTarget.Global
+                            target
                         );
                     }
                     break;
@@ -175,6 +180,21 @@ export class AgentPanelProvider implements vscode.WebviewViewProvider {
         }
         if (this._view) {
             this._view.webview.html = this._getHtmlContent(this._view.webview);
+        }
+    }
+
+    /**
+     * Marca el panel como 'ocupado' o no y notifica al webview si está visible.
+     */
+    public setBusy(busy: boolean, message?: string): void {
+        this._busy = Boolean(busy);
+        this._busyMessage = message;
+        try {
+            if (this._view) {
+                this._view.webview.postMessage({ command: 'setBusy', busy: this._busy, message: this._busyMessage });
+            }
+        } catch {
+            // No bloquear por errores en el postMessage
         }
     }
 
@@ -496,6 +516,14 @@ export class AgentPanelProvider implements vscode.WebviewViewProvider {
             margin-bottom: 8px;
         }
 
+        /* ── Processing indicator (visible when extension notifica trabajo en curso) ── */
+        #processing-indicator { display: none; margin-bottom: 8px; }
+        .proc-visible { display: block; }
+        .proc-hidden  { display: none; }
+        .processing-wrapper { display:flex; align-items:center; gap:8px; font-size:12px; color: var(--c2); }
+        .processing-text { color: var(--c2); font-weight: 600; }
+        .spinner { width:16px; height:16px; border: 2px solid rgba(255,255,255,0.06); border-top: 2px solid var(--c2); border-radius:50%; animation: spin-cw .9s linear infinite; }
+
         /* ── Warn banner ─────────────────────────────────────────────── */
         .warn-banner {
             display: flex; align-items: flex-start; gap: 8px;
@@ -735,6 +763,14 @@ export class AgentPanelProvider implements vscode.WebviewViewProvider {
     ${this._getStatusBannerHtml()}
     ${(this._cachedStatus === null) ? '<div class="proc-bar"></div>' : ''}
 
+    <!-- Processing indicator: controlled via postMessage { command: 'setBusy', busy: boolean, message?: string } -->
+    <div id="processing-indicator" class="${this._busy ? 'proc-visible' : 'proc-hidden'}">
+        <div class="processing-wrapper">
+            <div class="spinner" role="img" aria-label="Procesando"></div>
+            <div id="processing-text" class="processing-text">${escapeHtml(this._busyMessage ?? 'Procesando…')}</div>
+        </div>
+    </div>
+
     ${showToolsWarning ? `
     <div class="warn-banner">
         <span style="flex-shrink:0;font-size:14px">&#x26A0;</span>
@@ -867,6 +903,26 @@ export class AgentPanelProvider implements vscode.WebviewViewProvider {
 
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
+
+        // Escuchar mensajes desde la extensión para mostrar estado de procesamiento
+        window.addEventListener('message', event => {
+            try {
+                const data = event.data;
+                if (!data) { return; }
+                if (data.command === 'setBusy') {
+                    const el = document.getElementById('processing-indicator');
+                    const txt = document.getElementById('processing-text');
+                    if (!el) { return; }
+                    if (data.busy) {
+                        el.classList.remove('proc-hidden'); el.classList.add('proc-visible');
+                        if (txt) { txt.textContent = data.message || 'Procesando…'; }
+                    } else {
+                        el.classList.remove('proc-visible'); el.classList.add('proc-hidden');
+                    }
+                }
+            } catch (e) { /* no bloquear la UI por errores */ }
+        });
+
         document.addEventListener('click', function(e) {
             const btn = e.target.closest('[data-action]');
             if (!btn) { return; }

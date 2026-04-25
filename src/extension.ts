@@ -137,6 +137,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.registerWebviewViewProvider(AgentPanelProvider.viewType, agentProvider)
     );
 
+    // Comando interno: permitir que otras partes de la extensión notifiquen
+    // al panel que hay una operación en curso (busy). Se usa para mostrar
+    // un indicador visual en el sidebar que no depende del chat view.
+    context.subscriptions.push(
+        vscode.commands.registerCommand('copilotLocal.setBusy', (opts: { busy: boolean; message?: string } | boolean) => {
+            try {
+                if (typeof opts === 'boolean') {
+                    agentProvider.setBusy(opts, undefined);
+                } else if (opts && typeof opts === 'object') {
+                    agentProvider.setBusy(Boolean(opts.busy), String(opts.message ?? '')); 
+                }
+            } catch (e) {
+                // No bloquear si el panel no está inicializado
+            }
+        })
+    );
+
     // === 5. Registrar panel SDD (eliminado — integrado en Agente & Skills) ===
 
     // === 6. Comando para abrir .mcp.json ===
