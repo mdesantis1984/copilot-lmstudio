@@ -1,5 +1,6 @@
 /**
- * mcpDetector.ts — Detecta si los servidores MCP requeridos están configurados.
+ * mcpDetector.ts — Detecta si los servidores MCP requeridos están configurados
+ * y expone helpers para interactuar con ia-recuerdo via JSON-RPC HTTP.
  *
  * Verifica el archivo %USERPROFILE%\.mcp.json buscando las entradas:
  *   - ia-orquestador (habilita habilidades .NET y SDD)
@@ -57,6 +58,141 @@ export async function getMcpStatus(): Promise<McpStatus> {
     return result;
 }
 
+// ─── MCP HTTP helpers ─────────────────────────────────────────────────────────
+
+/** Resultado de una llamada MCP tool. */
+export interface McpToolResult {
+    success: boolean;
+    data?: unknown;
+    error?: string;
+}
+
+/**
+ * Llama a una herramienta MCP via JSON-RPC 2.0 HTTP (POST).
+ * Timeout de 5 s. No lanza: devuelve { success: false, error } si falla.
+ */
+export async function callMcpTool(
+    url: string,
+    toolName: string,
+    args: Record<string, unknown>
+): Promise<McpToolResult> {
+    const body = {
+        jsonrpc: '2.0',
+        id: Date.now(),
+        method: 'tools/call',
+        params: { name: toolName, arguments: args },
+    };
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(5_000),
+        });
+
+        if (!response.ok) {
+            return { success: false, error: `HTTP ${response.status}` };
+        }
+
+        const json = await response.json() as {
+            result?: { content?: Array<{ type: string; text?: string }> };
+            error?: { message?: string };
+        };
+
+        if (json.error) {
+            return { success: false, error: json.error.message ?? 'MCP error' };
+        }
+
+        // Decodificar contenido text del resultado
+        const textContent = json.result?.content
+            ?.filter(c => c.type === 'text')
+            .map(c => c.text ?? '')
+            .join('') ?? '';
+
+        let data: unknown = textContent;
+        try { data = JSON.parse(textContent); } catch { /* mantener como string */ }
+
+        return { success: true, data };
+    } catch (e) {
+        return { success: false, error: String(e) };
+    }
+}
+
+// ─── ia-recuerdo helpers ───────────────────────────────────────────────────────
+
+/**
+ * Inicia una sesión de memoria en ia-recuerdo.
+ * Devuelve el session_id o undefined si falla.
+ */
+export async function startMemorySession(
+    memoryUrl: string,
+    project: string,
+    goal: string
+): Promise<string | undefined> {
+    const result = await callMcpTool(memoryUrl, 'mem_session_start', {
+        agent: 'copilot-lmstudio',
+        project,
+        goal,
+    });
+
+    if (!result.success) {
+        console.warn(`[copilot-lmstudio] startMemorySession failed: ${result.error}`);
+        return undefined;
+    }
+
+    const data = result.data as { session_id?: string } | undefined;
+    return data?.session_id;
+}
+
+/**
+ * Busca contexto relevante en ia-recuerdo para el prompt actual.
+ * Devuelve un bloque Markdown con los snippets encontrados, o '' si no hay nada.
+ */
+export async function getMemorySearchContext(
+    memoryUrl: string,
+    query: string,
+    project?: string
+): Promise<string> {
+    const args: Record<string, unknown> = { query, limit: 5 };
+    if (project) { args['project'] = project; }
+
+    const result = await callMcpTool(memoryUrl, 'mem_search', args);
+
+    if (!result.success || !result.data) { return ''; }
+
+    type MemObs = { title: string; snippet: string; type?: string };
+    const observations = (result.data as { observations?: MemObs[] })?.observations ?? [];
+    if (observations.length === 0) { return ''; }
+
+    const lines = observations.map(o =>
+        `- **${o.title}** *(${o.type ?? 'context'})*: ${o.snippet?.slice(0, 200) ?? ''}`
+    );
+    return `## Contexto de sesiones anteriores\n\n${lines.join('\n')}\n`;
+}
+
+/**
+ * Guarda el resumen de sesión en ia-recuerdo.
+ * No lanza excepciones.
+ */
+export async function summarizeMemorySession(
+    memoryUrl: string,
+    sessionId: string,
+    goal: string,
+    accomplished: string,
+    project: string
+): Promise<void> {
+    // Guardar resumen como observación
+    await callMcpTool(memoryUrl, 'mem_session_summary', {
+        session_id: sessionId,
+        goal,
+        accomplished,
+        project,
+    });
+}
+
+// ─── Historial ────────────────────────────────────────────────────────────────
+
 /**
  * Guarda mensajes de historial descartados en ia-recuerdo via MCP over HTTP.
  * No lanza excepciones: si el servidor no responde, registra en consola y continúa.
@@ -69,33 +205,15 @@ export async function saveDroppedHistoryToMemory(
         .map(m => `**[${m.role === 'user' ? 'Usuario' : 'Asistente'}]**: ${m.content}`)
         .join('\n\n---\n\n');
 
-    const body = {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'tools/call',
-        params: {
-            name: 'mem_save',
-            arguments: {
-                title: `Historial recortado — ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
-                content,
-                type: 'context',
-                project: 'copilot-lmstudio',
-            },
-        },
-    };
+    const result = await callMcpTool(memoryUrl, 'mem_save', {
+        title: `Historial recortado — ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
+        content,
+        type: 'context',
+        project: 'copilot-lmstudio',
+    });
 
-    try {
-        const response = await fetch(memoryUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(5_000),
-        });
-        if (!response.ok) {
-            console.warn(`[copilot-lmstudio] ia-recuerdo save failed: HTTP ${response.status}`);
-        }
-    } catch (e) {
-        console.warn(`[copilot-lmstudio] ia-recuerdo unreachable: ${e}`);
+    if (!result.success) {
+        console.warn(`[copilot-lmstudio] ia-recuerdo save failed: ${result.error}`);
     }
 }
 

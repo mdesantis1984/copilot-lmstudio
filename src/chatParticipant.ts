@@ -36,10 +36,10 @@ import {
     getSddState,
     STEP_NAMES,
 } from './sddWorkflow';
-import { getMcpStatus, showMcpInstallBanner, saveDroppedHistoryToMemory } from './mcpDetector';
+import { getMcpStatus, showMcpInstallBanner, saveDroppedHistoryToMemory, startMemorySession, getMemorySearchContext, summarizeMemorySession } from './mcpDetector';
 
 /** Versión visible en el header del chat — confirma qué código está activo. */
-const EXTENSION_VERSION = '1.1.44';
+const EXTENSION_VERSION = '1.1.47';
 
 interface LocalAiChatResult extends vscode.ChatResult {
     metadata: {
@@ -50,6 +50,10 @@ interface LocalAiChatResult extends vscode.ChatResult {
 }
 
 let activeModelId: string | undefined;
+
+/** Estado de sesión ia-recuerdo activa. Se reutiliza durante toda la vida de la extensión. */
+let memorySessionId: string | undefined;
+let memorySessionGoal: string | undefined;
 
 export function registerChatParticipant(
     context: vscode.ExtensionContext,
@@ -448,6 +452,23 @@ async function handleChat(
 
     stream.progress(`Enviando a ${model.name}...`);
 
+    // === ia-recuerdo: iniciar sesión y recuperar contexto ===
+    const mcpStatusEarly = await getMcpStatus();
+    let memoryContext = '';
+    if (mcpStatusEarly.memory && mcpStatusEarly.memoryUrl) {
+        const memUrl = mcpStatusEarly.memoryUrl;
+
+        // Iniciar sesión si no hay una activa
+        if (!memorySessionId) {
+            const goal = request.prompt.slice(0, 120);
+            memorySessionId = await startMemorySession(memUrl, 'copilot-lmstudio', goal);
+            memorySessionGoal = goal;
+        }
+
+        // Buscar contexto relevante para el prompt actual
+        memoryContext = await getMemorySearchContext(memUrl, request.prompt.slice(0, 200), 'copilot-lmstudio');
+    }
+
     const config = vscode.workspace.getConfiguration('copilotLocal');
     const temperature = config.get<number>('temperature') ?? 0.7;
     const maxTokens = config.get<number>('maxTokens') ?? 4096;
@@ -521,6 +542,7 @@ async function handleChat(
         specialistContent || baseSystem,
         customAgents ? `\n\n---\n## Instrucciones personalizadas\n\n${customAgents}` : '',
         additionalSkills ? `\n\n---\n## Skills adicionales\n\n${additionalSkills}` : '',
+        memoryContext ? `\n\n---\n${memoryContext}` : '',
         // workspace summary se añade aquí para que quede DENTRO del trim de presupuesto.
         // No se pasa a buildMessageHistory para evitar doble inclusión.
         getWorkspaceSummary() ? `\n\n${getWorkspaceSummary()}` : '',
@@ -575,11 +597,10 @@ async function handleChat(
     }
 
     if (droppedMessages.length > 0) {
-        // Cargar estado MCP una sola vez y reutilizarlo también para el banner final.
-        const mcpStatusNow = await getMcpStatus();
-        if (mcpStatusNow.memory && mcpStatusNow.memoryUrl) {
+        // Reutilizar mcpStatusEarly calculado al inicio del request
+        if (mcpStatusEarly.memory && mcpStatusEarly.memoryUrl) {
             // ia-recuerdo disponible: guardar en segundo plano (sin bloquear la respuesta)
-            void saveDroppedHistoryToMemory(droppedMessages, mcpStatusNow.memoryUrl);
+            void saveDroppedHistoryToMemory(droppedMessages, mcpStatusEarly.memoryUrl);
         } else {
             // ia-recuerdo no configurado: avisar al usuario antes de la respuesta
             stream.markdown(
@@ -650,9 +671,8 @@ async function handleChat(
 
         // === Banner MCP (solo la primera vez o si está habilitado) ===
         if (showMcpBanner) {
-            const mcpStatus = await getMcpStatus();
-            if (!mcpStatus.orchestrator || !mcpStatus.memory) {
-                showMcpInstallBanner(stream, mcpStatus);
+            if (!mcpStatusEarly.orchestrator || !mcpStatusEarly.memory) {
+                showMcpInstallBanner(stream, mcpStatusEarly);
             }
         }
     } catch (err) {
@@ -664,6 +684,17 @@ async function handleChat(
                 `Ejecuta \`/status\` para ver el estado del servidor.`
             );
         }
+    }
+
+    // === ia-recuerdo: guardar resumen de sesión en background ===
+    if (mcpStatusEarly.memory && mcpStatusEarly.memoryUrl && memorySessionId && memorySessionGoal) {
+        void summarizeMemorySession(
+            mcpStatusEarly.memoryUrl,
+            memorySessionId,
+            memorySessionGoal,
+            `Respuesta generada con especialista ${specialistId}, modelo ${model.id}`,
+            'copilot-lmstudio'
+        );
     }
 
     return { metadata: { command: '', modelUsed: model.id, specialist: specialistId } };
