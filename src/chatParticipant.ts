@@ -38,8 +38,10 @@ import {
 } from './sddWorkflow';
 import { getMcpStatus, showMcpInstallBanner, saveDroppedHistoryToMemory, startMemorySession, getMemorySearchContext, summarizeMemorySession } from './mcpDetector';
 
-/** Versión visible en el header del chat — confirma qué código está activo. */
-const EXTENSION_VERSION = '1.1.47';
+/** Versión visible en el header del chat — leída dinámicamente desde package.json. */
+function getExtensionVersion(ctx: vscode.ExtensionContext): string {
+    return (ctx.extension.packageJSON as { version?: string }).version ?? '?';
+}
 
 interface LocalAiChatResult extends vscode.ChatResult {
     metadata: {
@@ -647,7 +649,7 @@ async function handleChat(
     try {
         // Contexto disponible para mostrar al usuario (incluye versión para diagnóstico)
         const ctxKTokens = Math.round(contextLength / 1000);
-        stream.markdown(`*⚡ ${model.name} v${EXTENSION_VERSION} (LM Studio local)${specialistName}${toolsInfo} · 🧠 ${ctxKTokens}K ctx*\n\n`);
+        stream.markdown(`*⚡ ${model.name} v${getExtensionVersion(context)} (LM Studio local)${specialistName}${toolsInfo} · 🧠 ${ctxKTokens}K ctx*\n\n`);
 
         await runAgentLoop(
             manager.lmStudio,
