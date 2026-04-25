@@ -17,6 +17,7 @@ import * as vscode from 'vscode';
 import { ModelManager, LocalModel } from './modelManager';
 import { LmStudioChatMessage, CHARS_PER_TOKEN, ModelInfo } from './lmStudioClient';
 import { runAgentLoop, getAvailableTools } from './toolEngine';
+import * as os from 'os';
 import { Logger } from './logger';
 import {
     detectSpecialist,
@@ -36,10 +37,13 @@ import {
     getSddState,
     STEP_NAMES,
 } from './sddWorkflow';
-import { getMcpStatus, showMcpInstallBanner, saveDroppedHistoryToMemory } from './mcpDetector';
+import { getMcpStatus, showMcpInstallBanner, saveDroppedHistoryToMemory, startMemorySession, summarizeMemorySession, getMemorySearchContext } from './mcpDetector';
+import { StatsTracker } from './statsTracker';
 
-/** Versión visible en el header del chat — confirma qué código está activo. */
-const EXTENSION_VERSION = '1.1.44';
+/** Versión visible en el header del chat — leída dinámicamente desde package.json. */
+function getExtensionVersion(ctx: vscode.ExtensionContext): string {
+    return (ctx.extension.packageJSON as { version?: string }).version ?? '?';
+}
 
 interface LocalAiChatResult extends vscode.ChatResult {
     metadata: {
@@ -222,6 +226,8 @@ async function handleListModels(
     } catch (err) {
         stream.markdown(`❌ No se pudieron obtener los modelos: ${err}\n`);
         return { metadata: { command: 'models' } };
+    } finally {
+        // no-op
     }
 
     if (models.length === 0) {
@@ -453,10 +459,11 @@ async function handleChat(
     const maxTokens = config.get<number>('maxTokens') ?? 4096;
     const showMcpBanner = config.get<boolean>('showMcpBanner') ?? true;
     const toolsMode = config.get<'compact' | 'full' | 'off'>('toolsMode') ?? 'compact';
+    const projectName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'copilot-lmstudio';
 
     // === Consultar info completa del modelo activo en LM Studio ===
     const modelInfo: ModelInfo | null = await manager.lmStudio.getFullModelInfo(model.id);
-    const contextLength = modelInfo?.contextLength ?? 16_384;
+    let contextLength = modelInfo?.contextLength ?? 16_384;
     const maxContextLength = modelInfo?.maxContextLength ?? contextLength;
     const log = Logger.instance;
 
@@ -473,13 +480,38 @@ async function handleChat(
     // Presupuesto de tokens reservados para system prompt (~60%), tools (~25%), historial (~15%).
     // Dejamos maxTokens + 800 tokens de margen para la respuesta + overhead de plantilla de chat.
     const reservedTokens = maxTokens + 800;
-    const systemPromptBudgetTokens = Math.max(Math.floor((contextLength - reservedTokens) * 0.60), 1_500);
-    const toolsBudgetTokens       = Math.max(Math.floor((contextLength - reservedTokens) * 0.25), 1_000);
-    const historyBudgetTokens     = Math.max(Math.floor((contextLength - reservedTokens) * 0.15), 1_000);
+    let systemPromptBudgetTokens = Math.max(Math.floor((contextLength - reservedTokens) * 0.60), 1_500);
+    let toolsBudgetTokens       = Math.max(Math.floor((contextLength - reservedTokens) * 0.25), 1_000);
+    let historyBudgetTokens     = Math.max(Math.floor((contextLength - reservedTokens) * 0.15), 1_000);
 
     // Convertir presupuestos de tokens a chars usando CHARS_PER_TOKEN (2.0).
     // Este ratio es CONSERVADOR — sobreestima tokens, lo que significa que
     // recortamos más de lo necesario, pero NUNCA causamos n_keep >= n_ctx.
+    // Memory pressure guard: if system free memory is low, reduce budgets to avoid OOM/swap.
+    try {
+        const freeBytes = os.freemem();
+        const totalBytes = os.totalmem();
+        const freeGb = Math.round((freeBytes / (1024 ** 3)) * 10) / 10;
+        const freeRatio = totalBytes > 0 ? freeBytes / totalBytes : 0;
+        const availableToolsCount = getAvailableTools().length;
+        const lowMem = freeGb < 6 || freeRatio < 0.12;
+        const criticalMem = freeGb < 2 || freeRatio < 0.06;
+        if (lowMem) {
+            log.warn('ChatParticipant', 'Low system memory detected — applying conservative budgets', { freeGb, freeRatio, availableToolsCount });
+            systemPromptBudgetTokens = Math.min(systemPromptBudgetTokens, 1500);
+            toolsBudgetTokens = Math.min(toolsBudgetTokens, 600);
+            historyBudgetTokens = Math.min(historyBudgetTokens, 800);
+            // If critical or many tools are registered, further constrain contextLength and tools injection
+            if (criticalMem || availableToolsCount > 120) {
+                contextLength = Math.min(contextLength, 16_384);
+                toolsBudgetTokens = Math.min(toolsBudgetTokens, 400);
+                log.warn('ChatParticipant', 'Critical memory condition — further reduced context and tools budget', { contextLength, toolsBudgetTokens });
+            }
+        }
+    } catch (e) {
+        try { log.debug('ChatParticipant', 'Memory guard check failed', { error: String(e) }); } catch {}
+    }
+
     const tokenToChars = (t: number) => Math.floor(t * CHARS_PER_TOKEN);
     const systemPromptBudgetChars = tokenToChars(systemPromptBudgetTokens);
     const toolsMaxChars           = tokenToChars(toolsBudgetTokens);
@@ -495,11 +527,36 @@ async function handleChat(
 
     // === Detección de especialista ===
     const routing = detectSpecialist(request.prompt, context.extensionPath);
-    // Si el usuario fijó un especialista en el sidebar (no 'orchestrator'), usarlo.
-    // forcedSpecialist (via comando /agent) tiene mayor prioridad.
-    const pinnedSpecialist = config.get<string>('activeSpecialist') ?? 'orchestrator';
+    // Determinar si existe un especialista 'fijado' en configuración de workspace/folder.
+    // Comportamiento: por defecto usar detección automática; solo respetar
+    // `copilotLocal.activeSpecialist` si está definido a nivel Workspace o WorkspaceFolder.
+    const inspect = config.inspect<string>('activeSpecialist');
+    let pinnedSpecialist = 'orchestrator';
+    let pinnedSource: 'workspace' | 'folder' | 'global' | 'none' = 'none';
+    if (inspect?.workspaceValue) { pinnedSpecialist = inspect.workspaceValue; pinnedSource = 'workspace'; }
+    else if (inspect?.workspaceFolderValue) { pinnedSpecialist = inspect.workspaceFolderValue; pinnedSource = 'folder'; }
+    else if (inspect?.globalValue) { pinnedSpecialist = inspect.globalValue; pinnedSource = 'global'; }
+
+    const pinActive = pinnedSource === 'workspace' || pinnedSource === 'folder';
     const specialistId: SpecialistId = forcedSpecialist
-        ?? (pinnedSpecialist !== 'orchestrator' ? pinnedSpecialist as SpecialistId : routing.specialist);
+        ?? (pinActive ? pinnedSpecialist as SpecialistId : routing.specialist);
+
+    // Log de diagnóstico: registrar la decisión de ruteo y el contexto de workspace
+    try {
+        const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath ?? '';
+        log.info('ChatParticipant', 'Routing decision', {
+            promptPreview: (request.prompt ?? '').slice(0, 300),
+            forcedSpecialist: forcedSpecialist ?? null,
+            pinnedSpecialist,
+            detectedSpecialist: routing.specialist,
+            confidence: routing.confidence,
+            reason: routing.reason,
+            workspaceFolders: (vscode.workspace.workspaceFolders || []).map(f => f.uri.fsPath),
+            activeFile,
+        });
+    } catch (e) {
+        try { log.error('ChatParticipant', 'Error logging routing decision', { error: String(e) }); } catch {}
+    }
 
     // === Cargar prompt del especialista ===
     const agentFilePaths = config.get<string[]>('agentFilePath') ?? [];
@@ -508,6 +565,13 @@ async function handleChat(
     let specialistContent = loadSpecialistPrompt(specialistId, context.extensionPath);
     const customAgents = loadCustomAgents(agentFilePaths);
     const additionalSkills = loadAdditionalSkills(context.extensionPath, skillsFilePath);
+
+    const mcpStatusNow = await getMcpStatus();
+    let memoryContext = '';
+    if (mcpStatusNow.memory && mcpStatusNow.memoryUrl) {
+        await startMemorySession(mcpStatusNow.memoryUrl, projectName, request.prompt || 'chat', 'orchestrator');
+        memoryContext = await getMemorySearchContext(mcpStatusNow.memoryUrl, request.prompt || 'chat', projectName);
+    }
 
     // Si hay flujo SDD activo, envolver el prompt del especialista con el contexto SDD
     if (isSddActive()) {
@@ -521,6 +585,7 @@ async function handleChat(
         specialistContent || baseSystem,
         customAgents ? `\n\n---\n## Instrucciones personalizadas\n\n${customAgents}` : '',
         additionalSkills ? `\n\n---\n## Skills adicionales\n\n${additionalSkills}` : '',
+        memoryContext ? `\n\n---\n## Memoria persistente (ia-recuerdo)\n\n${memoryContext}` : '',
         // workspace summary se añade aquí para que quede DENTRO del trim de presupuesto.
         // No se pasa a buildMessageHistory para evitar doble inclusión.
         getWorkspaceSummary() ? `\n\n${getWorkspaceSummary()}` : '',
@@ -575,8 +640,6 @@ async function handleChat(
     }
 
     if (droppedMessages.length > 0) {
-        // Cargar estado MCP una sola vez y reutilizarlo también para el banner final.
-        const mcpStatusNow = await getMcpStatus();
         if (mcpStatusNow.memory && mcpStatusNow.memoryUrl) {
             // ia-recuerdo disponible: guardar en segundo plano (sin bloquear la respuesta)
             void saveDroppedHistoryToMemory(droppedMessages, mcpStatusNow.memoryUrl);
@@ -623,16 +686,27 @@ async function handleChat(
         stream.markdown(`*📋 SDD — ${STEP_NAMES[sddState.step]} (${stepIdx}/9) · Tu respuesta avanzará al paso siguiente · \`/reset\` para cancelar*\n\n`);
     }
 
+    // === Stats: interceptar stream para contar chars de respuesta ===
+    const requestStartMs = Date.now();
+    let responseChars = 0;
+    const markdownInterceptor = (text: string): void => {
+        responseChars += text.length;
+        stream.markdown(text);
+    };
+
+    // Notificar al panel que estamos procesando la petición (si el panel está abierto)
+    try { await vscode.commands.executeCommand('copilotLocal.setBusy', { busy: true, message: `Enviando a ${model.name}...` }); } catch {}
+
     try {
         // Contexto disponible para mostrar al usuario (incluye versión para diagnóstico)
         const ctxKTokens = Math.round(contextLength / 1000);
-        stream.markdown(`*⚡ ${model.name} v${EXTENSION_VERSION} (LM Studio local)${specialistName}${toolsInfo} · 🧠 ${ctxKTokens}K ctx*\n\n`);
+        stream.markdown(`*⚡ ${model.name} v${getExtensionVersion(context)} (LM Studio local)${specialistName}${toolsInfo} · 🧠 ${ctxKTokens}K ctx*\n\n`);
 
         await runAgentLoop(
             manager.lmStudio,
             model.id,
             messages,
-            (text) => stream.markdown(text),
+            markdownInterceptor,
             (msg) => stream.progress(msg),
             request.toolInvocationToken,
             token,
@@ -640,6 +714,15 @@ async function handleChat(
         );
 
         activeModelId = model.id;
+
+        // === Registrar stats de la request exitosa ===
+        StatsTracker.instance.record({
+            tokensIn:    StatsTracker.estimateTokensIn(messages),
+            tokensOut:   StatsTracker.estimateTokensOut(responseChars),
+            durationMs:  Date.now() - requestStartMs,
+            error:       false,
+            model:       model.name,
+        });
 
         // === Auto-avanzar paso SDD tras respuesta del modelo ===
         // Avanzar siempre que SDD esté activo — incluye el paso init después de /sdd.
@@ -650,12 +733,30 @@ async function handleChat(
 
         // === Banner MCP (solo la primera vez o si está habilitado) ===
         if (showMcpBanner) {
-            const mcpStatus = await getMcpStatus();
-            if (!mcpStatus.orchestrator || !mcpStatus.memory) {
-                showMcpInstallBanner(stream, mcpStatus);
+            if (!mcpStatusNow.orchestrator || !mcpStatusNow.memory) {
+                showMcpInstallBanner(stream, mcpStatusNow);
             }
         }
+        if (mcpStatusNow.memory && mcpStatusNow.memoryUrl) {
+            void summarizeMemorySession(mcpStatusNow.memoryUrl, {
+                project: projectName,
+                goal: request.prompt || 'chat',
+                discoveries: [specialistId, model.id],
+                accomplished: ['Responded to the user', isSddActive() ? 'Advanced SDD state' : 'Handled chat'],
+                files_touched: [],
+                agent: specialistId,
+            });
+        }
     } catch (err) {
+        // === Registrar stats del error ===
+        StatsTracker.instance.record({
+            tokensIn:   StatsTracker.estimateTokensIn(messages),
+            tokensOut:  0,
+            durationMs: Date.now() - requestStartMs,
+            error:      true,
+            model:      model.name,
+        });
+
         if (!token.isCancellationRequested) {
             const errMsg = err instanceof Error ? err.message : String(err);
             stream.markdown(
@@ -664,6 +765,8 @@ async function handleChat(
                 `Ejecuta \`/status\` para ver el estado del servidor.`
             );
         }
+    } finally {
+        try { void vscode.commands.executeCommand('copilotLocal.setBusy', { busy: false }); } catch {}
     }
 
     return { metadata: { command: '', modelUsed: model.id, specialist: specialistId } };

@@ -90,7 +90,8 @@ export class ModelManager {
 
         if (available) {
             try {
-                const models = await this.lmStudioClient.listModels();
+                // Timeout corto (4s) para el status check — evitar bloquear el panel
+                const models = await this.lmStudioClient.listModels(AbortSignal.timeout(4000));
                 modelCount = models.length;
             } catch {
                 // Ignorar

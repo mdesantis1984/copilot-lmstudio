@@ -27,6 +27,7 @@ export type SpecialistId =
     | 'frontend'
     | 'angular'
     | 'django-drf'
+    | 'python'
     | 'sdd'
     | 'code-review'
     | 'unit-testing'
@@ -45,7 +46,7 @@ export type SpecialistId =
 export const ALL_SPECIALIST_IDS: SpecialistId[] = [
     'azure', 'blazor-server', 'blazor-wasm', 'maui', 'mudblazor',
     'csharp', 'clean-arch', 'microservices', 'minimal-api', 'infrastructure',
-    'frontend', 'angular', 'django-drf', 'code-review', 'unit-testing',
+    'frontend', 'angular', 'django-drf', 'python', 'code-review', 'unit-testing',
     'playwright', 'pytest', 'web-security', 'typescript', 'solid-principles',
     'ai-sdk', 'github-pr', 'interface-programming', 'jira', 'go',
 ];
@@ -72,6 +73,7 @@ const PROMPT_KEYWORDS: Record<SpecialistId, string[]> = {
     frontend: ['react', 'next.js', 'nextjs', 'tailwind', 'tsx', 'jsx', 'component', 'hook', 'suspense', 'server action', 'usestate'],
     angular: ['angular', 'component angular', 'signals', 'signal()', 'inject()', 'standalone component', 'ngfor', 'ngif', '@if ', '@for ', 'control flow angular', 'angular forms', 'reactive forms'],
     'django-drf': ['django', 'drf', 'viewset', 'serializer', 'python api', 'rest framework', 'modelviewset', 'filterset', 'django filter', 'django rest'],
+    python: ['python', 'pip', 'venv', 'virtualenv', 'pyproject', 'poetry', 'pydantic', 'dataclass python', 'type hint', 'asyncio', 'aiohttp', 'fastapi', 'flask', 'sqlalchemy', 'alembic', 'celery', 'typing python', 'list comprehension', 'generator python', 'decorator python', 'context manager', '__init__.py'],
     sdd: ['sdd', 'spec driven', 'especificación', 'flujo sdd', 'diseño de feature', 'nuevo proyecto', 'nueva feature', 'quiero crear', 'quiero construir', 'cómo empezar', 'desde cero', 'arquitectura de', 'quiero hacer un sistema'],
     'code-review': ['review', 'revisar', 'código a revisar', 'check this code', 'que tal este código', 'mejoras al código'],
     'unit-testing': ['unit test', 'test unitario', 'xunit', 'nsubstitute', 'fluentassertions', 'coverlet', 'cobertura', 'coverage', 'webapplicationfactory', 'integration test', 'bunit', 'fact', 'theory', 'mock', 'stub', 'coverage report'],
@@ -84,7 +86,7 @@ const PROMPT_KEYWORDS: Record<SpecialistId, string[]> = {
     'github-pr': ['pull request', 'github pr', 'gh pr create', 'conventional commit', 'commit message', 'branch naming', 'pr description'],
     'interface-programming': ['interfaz', 'interface programming', 'irepository', 'iemailsender', 'coding to interface', 'abstracción', 'decorator pattern', 'scrutor', 'null object pattern', 'inject abstraction'],
     jira: ['jira', 'ticket', 'epic jira', 'historia de usuario', 'user story', 'jira task', 'criterios de aceptación', 'acceptance criteria', 'bug ticket', 'jira epic'],
-    go: ['golang', 'go lang', 'go module', 'go.mod', 'goroutine', 'channel go', 'errgroup', 'go interface', 'net/http go', 'go test', 'go build', 'gorm', 'gin go', 'echo go', 'fiber go', 'go router', 'context.WithTimeout', 'errors.Is', 'errors.As', 'fmt.Errorf', 'go generics'],
+    go: ['golang', 'go lang', 'go module', 'go.mod', 'goroutine', 'channel go', 'errgroup', 'go interface', 'net/http go', 'go test', 'go build', 'gorm', 'gin go', 'echo go', 'fiber go', 'go router', 'context.WithTimeout', 'errors.Is', 'errors.As', 'fmt.Errorf', 'go generics', 'pgx', 'sqlc', 'wire go', 'fx go', 'fasthttp', 'go routine', 'sync.WaitGroup', 'sync.Mutex', 'go embed', 'go workspace'],
 };
 
 // Extensiones/archivos del workspace que activan especialistas
@@ -107,6 +109,9 @@ const FILE_PATTERNS: Array<{ pattern: RegExp; specialist: SpecialistId; weight: 
     { pattern: /angular\.json$|app\.component\.ts$/i, specialist: 'angular', weight: 3 },
     { pattern: /\.component\.ts$|\.service\.ts$|environment\.ts$/i, specialist: 'angular', weight: 2 },
     { pattern: /requirements\.txt$|settings\.py$|urls\.py$|serializers\.py$/i, specialist: 'django-drf', weight: 3 },
+    { pattern: /\.py$/i, specialist: 'python', weight: 1 },
+    { pattern: /pyproject\.toml$|setup\.py$|setup\.cfg$|poetry\.lock$/i, specialist: 'python', weight: 2 },
+    { pattern: /fastapi|flask|aiohttp|sqlalchemy/i, specialist: 'python', weight: 3 },
     { pattern: /tsconfig\.json$/, specialist: 'typescript', weight: 1 },
     { pattern: /go\.mod$|go\.sum$/i, specialist: 'go', weight: 3 },
     { pattern: /\.go$/, specialist: 'go', weight: 2 },
@@ -218,13 +223,14 @@ function collectFilesRecursive(dir: string, results: string[], depth: number, ma
     }
 
     for (const entry of entries) {
-        if (entry.startsWith('.') || entry === 'node_modules' || entry === 'bin' || entry === 'obj') { continue; }
+        if (entry.startsWith('.') || entry === 'node_modules' || entry === 'bin' || entry === 'obj' || entry === 'out') { continue; }
         const fullPath = path.join(dir, entry);
         try {
             const stat = fs.statSync(fullPath);
             if (stat.isDirectory()) {
                 collectFilesRecursive(fullPath, results, depth + 1, maxDepth);
-            } else {
+            } else if (!/\.(md|txt)$/i.test(entry)) {
+                // Excluir markdown y texto plano — no son señales de especialistas de código
                 results.push(fullPath);
             }
         } catch {
@@ -324,6 +330,7 @@ export function getSpecialistDisplayName(id: SpecialistId): string {
         frontend: 'Frontend (React/Next)',
         angular: 'Angular',
         'django-drf': 'Django REST Framework',
+        python: 'Python',
         sdd: 'SDD Workflow',
         'code-review': 'Code Review',
         'unit-testing': 'Unit Testing',
